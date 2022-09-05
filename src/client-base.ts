@@ -1,5 +1,7 @@
 import * as ws from 'ws';
-import {URL} from 'url';
+import type {
+  URL
+} from 'url';
 import * as events from 'events';
 import {
   CloseMessage,

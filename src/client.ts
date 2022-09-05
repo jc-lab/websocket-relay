@@ -7,7 +7,6 @@ import {
   CommonClientEvents,
   CommonClientOptions
 } from './client-base';
-import {textEncoder} from './utils';
 
 export interface ClientOptions extends CommonClientOptions {
 }

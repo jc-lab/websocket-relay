@@ -1,4 +1,7 @@
 import * as util from 'util';
 
-export const textEncoder = new util.TextEncoder();
-export const textDecoder = new util.TextDecoder();
+const TextEncoderRef = (typeof TextEncoder !== 'undefined') ? TextEncoder : util.TextEncoder;
+const TextDecoderRef = (typeof TextDecoder !== 'undefined') ? TextDecoder : util.TextDecoder;
+
+export const textEncoder = new TextEncoderRef();
+export const textDecoder = new TextDecoderRef();

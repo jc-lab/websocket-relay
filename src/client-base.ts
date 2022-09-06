@@ -1,8 +1,8 @@
-import * as ws from 'ws';
 import type {
   URL
 } from 'url';
 import * as events from 'events';
+import WebSocket from 'ws';
 import {
   CloseMessage,
   ConnectMessage,
@@ -13,13 +13,15 @@ import {
 } from './ws-model';
 import {textDecoder, textEncoder} from './utils';
 
+const IS_NODEJS = (typeof window === 'undefined');
+
 export interface Authentication {
   username: string;
   password: string;
 }
 
 export interface CommonClientOptions {
-  connectionFactory: () => ws.WebSocket | Promise<ws.WebSocket>;
+  connectionFactory: () => WebSocket | Promise<WebSocket>;
   address: string | URL;
   channel: string;
   reconnect: boolean;
@@ -53,10 +55,16 @@ export interface CommonClientEvents extends events.EventEmitter {
   emit(eventName: 'close', reason: number): boolean;
 }
 
+function subarray(buffer: ArrayBuffer, start: number, end?: number): ArrayBuffer
+function subarray(buffer: Buffer, start: number, end?: number): Buffer
+function subarray(buffer: ArrayBuffer | Buffer, start: number, end?: number): ArrayBuffer | Buffer {
+  return Buffer.isBuffer(buffer) ? buffer.subarray(start, end) : buffer.slice(start, end);
+}
+
 export abstract class AbstractClient<TOPT extends CommonClientOptions> extends events.EventEmitter implements CommonClientEvents {
   protected readonly _options: Partial<TOPT>;
   protected readonly _type: EndpointType;
-  protected _connection!: ws.WebSocket;
+  protected _connection!: WebSocket;
   protected reconnect: boolean;
   protected readonly channel: string;
 
@@ -68,7 +76,7 @@ export abstract class AbstractClient<TOPT extends CommonClientOptions> extends e
     this.channel = options.channel!;
   }
 
-  public getConnection(): ws.WebSocket {
+  public getConnection(): WebSocket {
     return this._connection;
   }
 
@@ -82,24 +90,24 @@ export abstract class AbstractClient<TOPT extends CommonClientOptions> extends e
         if (this._options?.connectionFactory) {
           return this._options.connectionFactory();
         }
-        return new ws.WebSocket(this._options?.address!);
+        return new WebSocket(this._options?.address! as any);
       })
       .then((socket) => {
         this._connection = socket;
-        socket.binaryType = 'nodebuffer';
-        socket
-          .on('error', (err) => {
-            this.emit('error', err);
-          })
-          .on('open', () => {
-            this.handleConnectionOpen(socket);
-          })
-          .on('message', (msg: Buffer) => {
-            this.handleMessage(socket, msg);
-          })
-          .on('close', (reason) => {
-            this.handleClose(socket, reason);
-          });
+        socket.binaryType = (IS_NODEJS ? 'nodebuffer' : 'arraybuffer') as any;
+        socket.addEventListener('error', (event) => {
+          this.emit('error', event.error || event);
+
+        });
+        socket.addEventListener('open', (event) => {
+          this.handleConnectionOpen(socket);
+        });
+        socket.addEventListener('close', (event) => {
+          this.handleClose(socket, event.code);
+        });
+        socket.addEventListener('message', (event) => {
+          this.handleMessage(socket, event.data as (Buffer | ArrayBuffer));
+        });
       })
       .catch((err) => {
         this.emit('error', err);
@@ -122,11 +130,11 @@ export abstract class AbstractClient<TOPT extends CommonClientOptions> extends e
       });
   }
 
-  private handleConnectionOpen(socket: ws.WebSocket) {
+  private handleConnectionOpen(socket: WebSocket) {
     this.doHandshake(socket);
   }
 
-  protected handleClose(socket: ws.WebSocket, reason: number) {
+  protected handleClose(socket: WebSocket, reason: number) {
     this.emit('close', reason);
     if (this.reconnect) {
       this.doReconnect(reason)
@@ -136,10 +144,11 @@ export abstract class AbstractClient<TOPT extends CommonClientOptions> extends e
     }
   }
 
-  private handleMessage(socket: ws.WebSocket, data: Buffer) {
+  private handleMessage(socket: WebSocket, data: Buffer | ArrayBuffer) {
     try {
-      const control = data[0] as Control;
-      const payload = data.subarray(1);
+      const view = new Uint8Array(data);
+      const control = view[0] as Control;
+      const payload = subarray(data, 1);
 
       switch (control) {
         case Control.HandshakeResponse:
@@ -163,7 +172,7 @@ export abstract class AbstractClient<TOPT extends CommonClientOptions> extends e
     }
   }
 
-  private doHandshake(connection: ws.WebSocket) {
+  private doHandshake(connection: WebSocket) {
     return Promise.resolve()
       .then(() => {
         if (this._options.authentication) {
@@ -189,9 +198,9 @@ export abstract class AbstractClient<TOPT extends CommonClientOptions> extends e
       });
   }
 
-  private handleRawRelayServerMessage(binaryPayload: Buffer) {
-    const sessionId = binaryPayload.subarray(0, 36).toString();
-    const data = binaryPayload.subarray(36);
+  private handleRawRelayServerMessage(binaryPayload: Buffer | ArrayBuffer) {
+    const sessionId = textDecoder.decode(subarray(binaryPayload, 0, 36));
+    const data = subarray(binaryPayload, 36);
     this.handleRelayServerMessage(sessionId, data);
   }
 
@@ -203,7 +212,7 @@ export abstract class AbstractClient<TOPT extends CommonClientOptions> extends e
 
   protected abstract handleConnectMessage(data: ConnectMessage): void;
 
-  protected abstract handleRelayServerMessage(sessionId: string, data: Buffer): void;
+  protected abstract handleRelayServerMessage(sessionId: string, data: Buffer | ArrayBuffer): void;
 
-  protected abstract handleRelayClientMessage(data: Buffer): void;
+  protected abstract handleRelayClientMessage(data: Buffer | ArrayBuffer): void;
 }

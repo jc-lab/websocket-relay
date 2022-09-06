@@ -1,10 +1,9 @@
 import * as streams from 'stream';
 import * as events from 'events';
-import * as ws from 'ws';
+import WebSocket from 'ws';
 import {CloseMessage, ConnectMessage, Control, ResultCode} from './ws-model';
 import {AbstractClient, CommonClientEvents, CommonClientOptions} from './client-base';
 import {textEncoder} from './utils';
-
 
 export interface ChannelConnectionEvents extends events.EventEmitter {
   once(eventName: string | symbol, listener: (...args: any[]) => void): this;
@@ -86,7 +85,7 @@ export class Server extends AbstractClient<ServerOptions> implements ServerEvent
     this._connection.send(payload, cb);
   }
 
-  protected handleClose(socket: ws.WebSocket, reason: number) {
+  protected handleClose(socket: WebSocket, reason: number) {
     Object.keys(this._connections)
       .forEach((sessionId) => {
         const connection = this._connections[sessionId];
@@ -115,11 +114,11 @@ export class Server extends AbstractClient<ServerOptions> implements ServerEvent
     }
   }
 
-  protected handleRelayClientMessage(data: Buffer): void {
+  protected handleRelayClientMessage(data: Buffer | ArrayBuffer): void {
     // nothing
   }
 
-  protected handleRelayServerMessage(sessionId: string, data: Buffer): void {
+  protected handleRelayServerMessage(sessionId: string, data: Buffer | ArrayBuffer): void {
     const connection = this._connections[sessionId];
     if (connection) {
       delete this._connections[sessionId];

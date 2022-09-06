@@ -46,11 +46,11 @@ export class Client extends AbstractClient<ClientOptions> implements ClientEvent
     // nothing
   }
 
-  protected handleRelayClientMessage(data: Buffer): void {
+  protected handleRelayClientMessage(data: Buffer | ArrayBuffer): void {
     this.emit('data', data);
   }
 
-  protected handleRelayServerMessage(sessionId: string, data: Buffer): void {
+  protected handleRelayServerMessage(sessionId: string, data: Buffer | ArrayBuffer): void {
     // nothing
   }
 }

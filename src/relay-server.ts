@@ -2,6 +2,7 @@ import * as http from 'http';
 import * as streams from 'stream';
 import * as ws from 'ws';
 import * as uuid from 'uuid';
+import {RemoteInfo, WebSocketInterface} from './types';
 import {
   CloseMessage,
   ConnectMessage,
@@ -10,10 +11,7 @@ import {
   HandshakeRequestMessage, HandshakeResponseMessage,
   ResultCode
 } from './ws-model';
-import {
-  textEncoder,
-  textDecoder
-} from './utils';
+import utils from './utils';
 
 export interface RelayConnection {
   closed: boolean;
@@ -24,7 +22,7 @@ export interface RelayConnection {
 
 export interface ClientContext {
   id: string;
-  connection: ws.WebSocket;
+  connection: WebSocketInterface;
   remoteAddress: string | null;
   handshaked: boolean;
   type: EndpointType | null;
@@ -41,7 +39,7 @@ export interface ChannelContext {
 export interface RelayServerOptions {
   websocketServer: ws.Server;
   websocketOptions: ws.ServerOptions;
-  filterClient: (client: ClientContext, request: http.IncomingMessage) => boolean | Promise<boolean>;
+  filterClient: (client: ClientContext, remoteInfo: RemoteInfo) => boolean | Promise<boolean>;
   authorize: (client: ClientContext, params: HandshakeRequestMessage) => boolean | Promise<boolean>;
   onError: (client: ClientContext, err: Error) => void;
 }
@@ -90,15 +88,18 @@ export class RelayServer {
 
   public handleUpgrade(req: http.IncomingMessage, sock: streams.Duplex, upgradeHeader: Buffer) {
     this._ws.handleUpgrade(req, sock, upgradeHeader, (client, request) => {
-      this.addClient(client, request);
+      this.addClient(client, {
+        req: req,
+        remoteAddress: request.socket.remoteAddress || null
+      });
     });
   }
 
-  public addClient(client: ws.WebSocket, request: http.IncomingMessage) {
+  public addClient(client: WebSocketInterface, remoteInfo: RemoteInfo): void {
     const context: ClientContext = {
       id: uuid.v4(),
       connection: client,
-      remoteAddress: request.socket.remoteAddress || null,
+      remoteAddress: remoteInfo.remoteAddress || null,
       handshaked: false,
       type: null,
       channel: null,
@@ -106,10 +107,14 @@ export class RelayServer {
       relayConnections: []
     };
 
+    if (!client.on) {
+      throw new Error('Not supported WebSocket implementation');
+    }
+
     Promise.resolve()
       .then(() => {
         if (this._options.filterClient) {
-          return this._options.filterClient(context, request);
+          return this._options.filterClient(context, remoteInfo);
         }
         return true;
       })
@@ -119,13 +124,12 @@ export class RelayServer {
         } else {
           this._connections[context.id] = context;
           client.binaryType = 'nodebuffer';
-          client
-            .on('message', (msg: Buffer) => {
-              this.handleMessage(context, msg);
-            })
-            .on('close', (reason) => {
-              this.handleClose(context, reason);
-            });
+          client.on!('message', (msg: Buffer) => {
+            this.handleMessage(context, msg);
+          });
+          client.on!('close', (reason) => {
+            this.handleClose(context, reason);
+          });
         }
       });
   }
@@ -175,7 +179,7 @@ export class RelayServer {
   }
 
   private handleHandshakeRequestMessage(context: ClientContext, binaryPayload: Buffer) {
-    const payload = JSON.parse(textDecoder.decode(binaryPayload)) as HandshakeRequestMessage;
+    const payload = JSON.parse(utils.textDecoder.decode(binaryPayload)) as HandshakeRequestMessage;
     return Promise.resolve()
       .then(() => {
         if (this._options.authorize) {
@@ -214,7 +218,7 @@ export class RelayServer {
   }
 
   private handleCloseMessage(context: ClientContext, binaryPayload: Buffer) {
-    const data = JSON.parse(textDecoder.decode(binaryPayload)) as CloseMessage;
+    const data = JSON.parse(utils.textDecoder.decode(binaryPayload)) as CloseMessage;
 
     if (context.type === 'server') {
       const relayIndex = context.relayConnections.findIndex((v) => v.sessionId === data.sessionId);
@@ -267,7 +271,7 @@ export class RelayServer {
   private sendHandshakeResponse(target: ClientContext) {
     const data: HandshakeResponseMessage = {};
     const payload = Buffer.concat([
-      Buffer.from([Control.HandshakeResponse]), textEncoder.encode(JSON.stringify(data))
+      Buffer.from([Control.HandshakeResponse]), utils.textEncoder.encode(JSON.stringify(data))
     ]);
     target.connection.send(payload);
   }
@@ -278,7 +282,7 @@ export class RelayServer {
       remoteAddress: remote.remoteAddress || ''
     };
     const payload = Buffer.concat([
-      Buffer.from([Control.Connect]), textEncoder.encode(JSON.stringify(data))
+      Buffer.from([Control.Connect]), utils.textEncoder.encode(JSON.stringify(data))
     ]);
     target.connection.send(payload);
   }
@@ -289,14 +293,14 @@ export class RelayServer {
       reason
     };
     const payload = Buffer.concat([
-      Buffer.from([Control.Close]), textEncoder.encode(JSON.stringify(data))
+      Buffer.from([Control.Close]), utils.textEncoder.encode(JSON.stringify(data))
     ]);
     target.connection.send(payload);
   }
 
   private sendRelayMessageToServer(target: ClientContext, sessionId: string, data: Buffer) {
     const payload = Buffer.concat([
-      Buffer.from([Control.RelayServerSide]), textEncoder.encode(sessionId), data
+      Buffer.from([Control.RelayServerSide]), utils.textEncoder.encode(sessionId), data
     ]);
     target.connection.send(payload);
   }

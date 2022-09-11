@@ -2,7 +2,8 @@ import type {
   URL
 } from 'url';
 import * as events from 'events';
-import WebSocket from 'ws';
+import type WebSocket from 'ws';
+import {WebSocketInterface} from './types';
 import {
   CloseMessage,
   ConnectMessage,
@@ -11,7 +12,7 @@ import {
   HandshakeRequestMessage,
   HandshakeResponseMessage
 } from './ws-model';
-import {textDecoder, textEncoder} from './utils';
+import utils from './utils';
 
 const IS_NODEJS = (typeof window === 'undefined');
 
@@ -21,7 +22,8 @@ export interface Authentication {
 }
 
 export interface CommonClientOptions {
-  connectionFactory: () => WebSocket | Promise<WebSocket>;
+  websocketImpl: typeof WebSocket;
+  connectionFactory: () => WebSocketInterface | Promise<WebSocketInterface>;
   address: string | URL;
   channel: string;
   reconnect: boolean;
@@ -64,7 +66,7 @@ function subarray(buffer: ArrayBuffer | Buffer, start: number, end?: number): Ar
 export abstract class AbstractClient<TOPT extends CommonClientOptions> extends events.EventEmitter implements CommonClientEvents {
   protected readonly _options: Partial<TOPT>;
   protected readonly _type: EndpointType;
-  protected _connection!: WebSocket;
+  protected _connection!: WebSocketInterface;
   protected reconnect: boolean;
   protected readonly channel: string;
 
@@ -76,7 +78,7 @@ export abstract class AbstractClient<TOPT extends CommonClientOptions> extends e
     this.channel = options.channel!;
   }
 
-  public getConnection(): WebSocket {
+  public getConnection(): WebSocketInterface {
     return this._connection;
   }
 
@@ -90,24 +92,41 @@ export abstract class AbstractClient<TOPT extends CommonClientOptions> extends e
         if (this._options?.connectionFactory) {
           return this._options.connectionFactory();
         }
-        return new WebSocket(this._options?.address! as any);
+        if (this._options.websocketImpl) {
+          return new this._options.websocketImpl(this._options?.address! as any);
+        }
+        return Promise.reject(new Error('No websocket factory'));
       })
-      .then((socket) => {
+      .then((socket: WebSocketInterface) => {
         this._connection = socket;
         socket.binaryType = (IS_NODEJS ? 'nodebuffer' : 'arraybuffer') as any;
-        socket.addEventListener('error', (event) => {
-          this.emit('error', event.error || event);
-
-        });
-        socket.addEventListener('open', (event) => {
-          this.handleConnectionOpen(socket);
-        });
-        socket.addEventListener('close', (event) => {
-          this.handleClose(socket, event.code);
-        });
-        socket.addEventListener('message', (event) => {
-          this.handleMessage(socket, event.data as (Buffer | ArrayBuffer));
-        });
+        if (socket.on) {
+          socket.on('error', (err) => {
+            this.emit('error', err);
+          });
+          socket.on('open', () => {
+            this.handleConnectionOpen(socket);
+          });
+          socket.on('close', (reason) => {
+            this.handleClose(socket, reason);
+          });
+          socket.on('message', (data: Buffer) => {
+            this.handleMessage(socket, data);
+          });
+        } else if (socket.addEventListener) {
+          socket.addEventListener('error', (event) => {
+            this.emit('error', event.error || event);
+          });
+          socket.addEventListener('open', (event) => {
+            this.handleConnectionOpen(socket);
+          });
+          socket.addEventListener('close', (event) => {
+            this.handleClose(socket, event.code);
+          });
+          socket.addEventListener('message', (event) => {
+            this.handleMessage(socket, event.data as (Buffer | ArrayBuffer));
+          });
+        }
       })
       .catch((err) => {
         this.emit('error', err);
@@ -130,11 +149,11 @@ export abstract class AbstractClient<TOPT extends CommonClientOptions> extends e
       });
   }
 
-  private handleConnectionOpen(socket: WebSocket) {
+  private handleConnectionOpen(socket: WebSocketInterface) {
     this.doHandshake(socket);
   }
 
-  protected handleClose(socket: WebSocket, reason: number) {
+  protected handleClose(socket: WebSocketInterface, reason: number) {
     this.emit('close', reason);
     if (this.reconnect) {
       this.doReconnect(reason)
@@ -144,7 +163,7 @@ export abstract class AbstractClient<TOPT extends CommonClientOptions> extends e
     }
   }
 
-  private handleMessage(socket: WebSocket, data: Buffer | ArrayBuffer) {
+  private handleMessage(socket: WebSocketInterface, data: Buffer | ArrayBuffer) {
     try {
       const view = new Uint8Array(data);
       const control = view[0] as Control;
@@ -152,13 +171,13 @@ export abstract class AbstractClient<TOPT extends CommonClientOptions> extends e
 
       switch (control) {
         case Control.HandshakeResponse:
-          this.handleHandshakeResponseMessage(JSON.parse(textDecoder.decode(payload)) as HandshakeResponseMessage);
+          this.handleHandshakeResponseMessage(JSON.parse(utils.textDecoder.decode(payload)) as HandshakeResponseMessage);
           break;
         case Control.Connect:
-          this.handleConnectMessage(JSON.parse(textDecoder.decode(payload)) as ConnectMessage);
+          this.handleConnectMessage(JSON.parse(utils.textDecoder.decode(payload)) as ConnectMessage);
           break;
         case Control.Close:
-          this.handleCloseMessage(JSON.parse(textDecoder.decode(payload)) as CloseMessage);
+          this.handleCloseMessage(JSON.parse(utils.textDecoder.decode(payload)) as CloseMessage);
           break;
         case Control.RelayServerSide:
           this.handleRawRelayServerMessage(payload);
@@ -172,7 +191,7 @@ export abstract class AbstractClient<TOPT extends CommonClientOptions> extends e
     }
   }
 
-  private doHandshake(connection: WebSocket) {
+  private doHandshake(connection: WebSocketInterface) {
     return Promise.resolve()
       .then(() => {
         if (this._options.authentication) {
@@ -192,14 +211,14 @@ export abstract class AbstractClient<TOPT extends CommonClientOptions> extends e
           password: auth.password
         };
         const payload = Buffer.concat([
-          Buffer.from([Control.HandshakeRequest]), textEncoder.encode(JSON.stringify(data))
+          Buffer.from([Control.HandshakeRequest]), utils.textEncoder.encode(JSON.stringify(data))
         ]);
         connection.send(payload);
       });
   }
 
   private handleRawRelayServerMessage(binaryPayload: Buffer | ArrayBuffer) {
-    const sessionId = textDecoder.decode(subarray(binaryPayload, 0, 36));
+    const sessionId = utils.textDecoder.decode(subarray(binaryPayload, 0, 36));
     const data = subarray(binaryPayload, 36);
     this.handleRelayServerMessage(sessionId, data);
   }

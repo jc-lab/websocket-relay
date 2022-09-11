@@ -3,7 +3,7 @@ import * as events from 'events';
 import WebSocket from 'ws';
 import {CloseMessage, ConnectMessage, Control, ResultCode} from './ws-model';
 import {AbstractClient, CommonClientEvents, CommonClientOptions} from './client-base';
-import {textEncoder} from './utils';
+import utils from './utils';
 
 export interface ChannelConnectionEvents extends events.EventEmitter {
   once(eventName: string | symbol, listener: (...args: any[]) => void): this;
@@ -69,7 +69,7 @@ export class Server extends AbstractClient<ServerOptions> implements ServerEvent
 
   public sendTo(sessionId: string, data: Buffer, cb?: (err?: Error) => void) {
     const payload = Buffer.concat([
-      Buffer.from([Control.RelayServerSide]), textEncoder.encode(sessionId), data
+      Buffer.from([Control.RelayServerSide]), utils.textEncoder.encode(sessionId), data
     ]);
     this._connection.send(payload, cb);
   }
@@ -80,7 +80,7 @@ export class Server extends AbstractClient<ServerOptions> implements ServerEvent
       reason
     };
     const payload = Buffer.concat([
-      Buffer.from([Control.Close]), textEncoder.encode(JSON.stringify(data))
+      Buffer.from([Control.Close]), utils.textEncoder.encode(JSON.stringify(data))
     ]);
     this._connection.send(payload, cb);
   }

@@ -1,4 +1,5 @@
 import * as net from 'net';
+import WebSocket from 'ws';
 import {
   RelayServer,
   Server,
@@ -20,12 +21,14 @@ relay.listen(0, ADDR)
     const PORT = (httpServer.address() as net.AddressInfo).port;
     const server = new Server({
       address: `ws://${ADDR}:${PORT}`,
-      channel: 'test01'
+      channel: 'test01',
+      websocketImpl: WebSocket
     });
 
     const client = new Client({
       address: `ws://${ADDR}:${PORT}`,
-      channel: 'test01'
+      channel: 'test01',
+      websocketImpl: WebSocket
     });
 
     server

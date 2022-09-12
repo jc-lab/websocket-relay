@@ -1,5 +1,7 @@
 const fs = require('fs');
 const path = require('path');
+const webpack = require('webpack');
+const NodeExternals = require('webpack-node-externals');
 
 module.exports = {
   entry: {
@@ -10,7 +12,7 @@ module.exports = {
     path: path.resolve(__dirname, 'dist/browser'),
     libraryTarget: 'umd'
   },
-  target: 'node',
+  target: 'web',
   devtool: 'source-map',
   resolve: {
     extensions: ['.ts', '.tsx', '.js', '.json'],
@@ -28,6 +30,17 @@ module.exports = {
       }
     ]
   },
+  externalsPresets: {
+    node: true
+  },
+  externals: [
+    NodeExternals({})
+  ],
+  plugins: [
+    new webpack.ProvidePlugin({
+      Buffer: ['buffer', 'Buffer']
+    })
+  ],
   optimization: {
     minimize: false,
     removeAvailableModules: false,

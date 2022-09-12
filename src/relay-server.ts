@@ -130,6 +130,11 @@ export class RelayServer {
           client.on!('close', (reason) => {
             this.handleClose(context, reason);
           });
+          client.on!('error', (err) => {
+            if (this._options.onError) {
+              this._options.onError(context, err);
+            }
+          });
         }
       });
   }

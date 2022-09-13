@@ -70,6 +70,9 @@ export abstract class AbstractClient<TOPT extends CommonClientOptions> extends e
   protected reconnect: boolean;
   protected readonly channel: string;
 
+  protected backOffTime: number = 1000;
+  protected maxBackOffTime: number = 60000;
+
   protected constructor(options: Partial<TOPT>, type: EndpointType) {
     super();
     this._options = options;
@@ -135,6 +138,15 @@ export abstract class AbstractClient<TOPT extends CommonClientOptions> extends e
 
   private doReconnect(reason: number): Promise<void> {
     return Promise.resolve()
+      .then(() => new Promise<void>((resolve) => {
+        const backOffTime = this.backOffTime;
+        let nextBackOffTime = this.backOffTime * 2;
+        if (nextBackOffTime >= this.maxBackOffTime) {
+          nextBackOffTime = this.maxBackOffTime;
+        }
+        this.backOffTime = nextBackOffTime;
+        setTimeout(resolve, backOffTime);
+      }))
       .then(() => {
         if (this._options.beforeReconnect) {
           return this._options.beforeReconnect(reason);

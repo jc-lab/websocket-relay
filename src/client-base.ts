@@ -101,13 +101,24 @@ export abstract class AbstractClient<TOPT extends CommonClientOptions> extends e
         return Promise.reject(new Error('No websocket factory'));
       })
       .then((socket: WebSocketInterface) => {
+        let connecting = true;
         this._connection = socket;
         socket.binaryType = (IS_NODEJS ? 'nodebuffer' : 'arraybuffer') as any;
+
+        const handleErrorEvent = (err: any) => {
+          if (connecting) {
+            this.emit('connectError', err);
+          } else {
+            this.emit('error');
+          }
+        };
+
         if (socket.on) {
           socket.on('error', (err) => {
-            this.emit('error', err);
+            handleErrorEvent(err);
           });
           socket.on('open', () => {
+            connecting = false;
             this.handleConnectionOpen(socket);
           });
           socket.on('close', (reason) => {
@@ -118,9 +129,10 @@ export abstract class AbstractClient<TOPT extends CommonClientOptions> extends e
           });
         } else if (socket.addEventListener) {
           socket.addEventListener('error', (event) => {
-            this.emit('error', event.error || event);
+            handleErrorEvent(event.error || event);
           });
           socket.addEventListener('open', (event) => {
+            connecting = false;
             this.handleConnectionOpen(socket);
           });
           socket.addEventListener('close', (event) => {
